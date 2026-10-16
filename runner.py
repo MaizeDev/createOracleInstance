@@ -1,0 +1,141 @@
+"""启动 / 停止 / 查询本项目的两个后台服务: 抢机脚本 (retry.sh) 和 Telegram 遥控 (tg_control)。
+
+命令行 (ctl.sh) 和 Telegram 机器人共用这一份逻辑，所以两边行为完全一致。
+这里只会执行本目录下固定的脚本，函数不接收任何外部文本作为命令参数。
+"""
+import os
+import shutil
+import subprocess
+import time
+
+import procs
+
+DIR = procs.DIR
+
+
+def _tail(path, n=3):
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 4096))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return "(读不到日志)"
+    return "\n".join(lines[-n:])
+
+
+class Service(object):
+    def __init__(self, label, patterns, script, log_file,
+                 lock_dir=None, kill_children=False, show_log=False):
+        self.label = label
+        self.patterns = patterns              # [("shell"|"python", 脚本名)]
+        self.script = script                  # 要启动的 shell 脚本的绝对路径
+        self.script_name = os.path.basename(script)
+        self.log_file = log_file
+        self.lock_dir = lock_dir
+        self.kill_children = kill_children    # 停止时是否连同子进程一起终止
+        self.show_log = show_log
+        self._started = []                    # 本进程启动的子进程，用来回收僵尸进程
+
+    def _reap(self):
+        self._started = [p for p in self._started if p.poll() is None]
+
+    def _matched(self, rows):
+        protected = procs.self_and_ancestors(rows)
+        return [r for r in procs.find(self.patterns, rows) if r["pid"] not in protected]
+
+    def pids(self):
+        self._reap()
+        return [r["pid"] for r in self._matched(procs.snapshot())]
+
+    def _clear_lock(self):
+        if self.lock_dir and os.path.isdir(self.lock_dir):
+            try:
+                os.rmdir(self.lock_dir)
+                return True
+            except OSError:
+                pass
+        return False
+
+    def start(self):
+        self._reap()
+        rows = procs.snapshot()
+        if self._matched(rows):
+            return "%s: 已经在运行，无需重复启动" % self.label
+
+        if self.lock_dir and os.path.isdir(self.lock_dir):
+            others = procs.mentions(self.script_name, rows)
+            if others:
+                return ("%s: 检测到别处有同名脚本在运行 (pid %s)，"
+                        "为避免冲突没有启动，请先确认" % (self.label, ",".join(map(str, others))))
+            self._clear_lock()  # 没有任何进程持有它，说明是残留的锁，自动清理
+
+        cmd = ["bash", self.script]
+        if shutil.which("caffeinate"):  # macOS: 防止休眠
+            cmd = ["caffeinate", "-is"] + cmd
+        with open(self.log_file, "ab") as log:
+            # stdin 固定为 /dev/null: 关闭终端后 oci 不会因标准输入失效而崩溃；
+            # start_new_session: 独立会话，不受启动它的终端影响
+            proc = subprocess.Popen(
+                cmd, cwd=DIR, stdin=subprocess.DEVNULL,
+                stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+            )
+        self._started.append(proc)
+
+        time.sleep(3)
+        if proc.poll() is not None or not self._matched(procs.snapshot()):
+            return "%s: 启动后立即退出，最近日志:\n%s" % (self.label, _tail(self.log_file))
+        return "%s: 已启动" % self.label
+
+    def stop(self):
+        self._reap()
+        rows = procs.snapshot()
+        found = self._matched(rows)
+        if not found:
+            cleaned = self._clear_lock()
+            return "%s: 当前没有在运行%s" % (self.label, "（已清理残留的锁）" if cleaned else "")
+
+        victims = [r["pid"] for r in found]
+        if self.kill_children:
+            protected = procs.self_and_ancestors(rows)
+            victims = [p for p in procs.with_descendants(victims, rows) if p not in protected]
+        procs.kill(victims)
+        self._reap()
+        if not procs.wait_gone(victims, timeout=10):
+            return "%s: 已发送终止信号，但进程仍未退出，请到电脑上检查" % self.label
+        cleaned = self._clear_lock()  # SIGKILL 不会触发脚本自己的清理，这里补上
+        return "%s: 已强制停止%s" % (self.label, "，并清理了锁" if cleaned else "")
+
+    def status(self):
+        self._reap()
+        found = self._matched(procs.snapshot())
+        if not found:
+            note = ""
+            if self.lock_dir and os.path.isdir(self.lock_dir):
+                note = "（存在残留的锁，下次启动会自动清理）"
+            return "%s: 未运行%s" % (self.label, note)
+        main = min(found, key=lambda r: r["pid"])
+        text = "%s: 运行中 (pid %s，已运行 %s)" % (
+            self.label, ",".join(str(r["pid"]) for r in found),
+            procs.etime_to_text(main["etime"]))
+        if self.show_log:
+            text += "\n最近日志:\n" + _tail(self.log_file)
+        return text
+
+
+# 与 retry.sh 里的锁目录保持一致: ${TMPDIR:-/tmp}/oci-a1-retry.lock
+LOCK_DIR = os.path.join(os.environ.get("TMPDIR") or "/tmp", "oci-a1-retry.lock")
+
+RETRY = Service(
+    "抢机脚本", [("shell", "retry.sh")], os.path.join(DIR, "retry.sh"),
+    os.path.join(DIR, "retry.log"), lock_dir=LOCK_DIR, kill_children=True, show_log=True,
+)
+# 停止遥控时不能连带终止它启动的抢机脚本，所以 kill_children=False
+BOT = Service(
+    "遥控机器人", [("shell", "tg_control.sh"), ("python", "tg_control.py")],
+    os.path.join(DIR, "tg_control.sh"), os.path.join(DIR, "tg_control.log"),
+)
+
+# 机器人用到的三个动作，针对抢机脚本
+start, stop, status = RETRY.start, RETRY.stop, RETRY.status

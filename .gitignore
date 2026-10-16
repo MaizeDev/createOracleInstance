@@ -2,3 +2,4 @@ config.env
 *.key
 *.pem
 *.log
+*.pid

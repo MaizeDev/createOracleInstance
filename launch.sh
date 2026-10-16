@@ -2,6 +2,11 @@
 # 单次创建尝试。
 # 退出码: 0 = 成功(或同名实例已存在)  10 = 容量不足  11 = 被限流  1 = 其他错误
 set -u
+
+# 把标准输入固定指向 /dev/null，让所有子进程（oci 是 Python 程序）拿到一个永远有效的 stdin。
+# 否则用 nohup 后台运行后再关掉终端窗口，继承自终端的 stdin 会失效，
+# oci 启动时就会报 "Bad file descriptor" 并崩溃，而脚本本身还在跑。
+exec < /dev/null
 # shellcheck source=common.sh
 . "$(dirname "$0")/common.sh"
 load_config
