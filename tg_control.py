@@ -184,7 +184,9 @@ def main():
                 backoff = min(backoff * 2, 120)  # 别像以前那样一退就是 5 分钟
             continue
         if transient:
-            log("长轮询已恢复正常（此前连续中断 %d 次）" % transient)
+            # 恢复行里的次数是真实中断次数（中间几次没有逐条记日志，见上面），
+            # 措辞上写明"期间共中断 N 次"，免得读者以为漏了日志
+            log("长轮询已恢复正常（期间共中断 %d 次，已自动重试）" % transient)
             transient = 0
         backoff = 5
         for update in updates:
