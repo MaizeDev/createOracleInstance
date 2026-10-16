@@ -176,7 +176,7 @@ def main():
             else:
                 if is_auth_error(e):
                     log("拉取消息失败: %s。TELEGRAM_BOT_TOKEN 可能已失效或被 /revoke，"
-                        "请在 config.env 更新后执行 ./ctl.sh bot-stop && ./ctl.sh bot-start"
+                        "请在 config.env 更新后执行 ./ctl.sh bot-restart"
                         % (e,))
                 else:
                     log("拉取消息失败: %r，%s 秒后重试" % (e, backoff))

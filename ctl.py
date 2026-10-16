@@ -25,6 +25,7 @@ USAGE = """coi / ctl.sh —— 抢机脚本与 Telegram 遥控的启停入口
   stop        只停止抢机脚本
   bot-start   只启动 Telegram 遥控 (不动抢机脚本)
   bot-stop    只停止 Telegram 遥控
+  bot-restart 重启 Telegram 遥控 (= bot-stop + bot-start，改完代码后用它载入新代码)
 
 看日志:
   log         实时查看抢机日志 (Ctrl+C 退出，不影响脚本)
@@ -118,6 +119,11 @@ def main(argv):
         print()
         show_status(retry.status())
         show_status(bot.status())
+    elif cmd == "bot-restart":
+        # 只重启遥控: 改完代码后用这条载入新代码，抢机脚本不受影响
+        show_actions([bot.stop()])
+        print()
+        show_actions([bot.start()])
     elif cmd in ("start", "stop", "bot-start", "bot-stop"):
         svc = bot if cmd.startswith("bot-") else retry
         result = svc.start() if cmd.endswith("start") else svc.stop()

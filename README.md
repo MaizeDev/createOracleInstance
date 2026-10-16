@@ -245,6 +245,7 @@ cp config.env.example config.env
 | `./ctl.sh status` | 查看两者状态，抢机脚本会附带最近几行日志 |
 | `./ctl.sh start` / `stop` | 只启动 / 停止抢机脚本 |
 | `./ctl.sh bot-start` / `bot-stop` | 只启动 / 停止 Telegram 遥控 |
+| `./ctl.sh bot-restart` | 重启 Telegram 遥控（= `bot-stop` + `bot-start`；**改完代码后用这条载入新代码**，抢机脚本不受影响） |
 | `./ctl.sh log` / `botlog` | 实时查看抢机 / 遥控日志，`Ctrl+C` 退出查看，不影响脚本 |
 | `./ctl.sh -h` / `--help` | 显示全部命令和说明（`coi -h`、`coi help` 一样；不带参数也会打印） |
 
@@ -367,7 +368,7 @@ pid 60042 · 已运行 12 分钟
 2. **时间戳只留时分秒**：`[2026-10-16 20:31:07]` → `[20:31:07]`。
 3. **兜底截断**：仍然超长的行（比如 OCID、JSON 报错片段）按显示宽度（中文算 2 列）截到 `TG_LOG_WIDTH` 列以内，用 `…` 收尾。
 
-`TG_LOG_WIDTH` 默认 **40** 列；如果你手机上还是折行就调小、想多看点内容就调大，在 `config.env` 里加一行即可（改完 `coi bot-stop && coi bot-start` 生效）：
+`TG_LOG_WIDTH` 默认 **40** 列；如果你手机上还是折行就调小、想多看点内容就调大，在 `config.env` 里加一行即可（改完 `coi bot-restart` 生效）：
 
 ```bash
 TG_LOG_WIDTH=40
@@ -403,7 +404,7 @@ Telegram 服务器  <──(每约 30 秒一次长轮询，由你的电脑主动
 **给机器人加固（在 @BotFather 里操作）**
 
 - `/setjoingroups` → 选这个机器人 → `Disable`，禁止它被拉进群。
-- token 一旦泄露，立刻 `/revoke` 重新生成，并更新 `config.env`，然后 `./ctl.sh bot-stop` 再 `./ctl.sh bot-start`。**不要把 token 贴到聊天或截图里。**
+- token 一旦泄露，立刻 `/revoke` 重新生成，并更新 `config.env`，然后 `./ctl.sh bot-restart`。**不要把 token 贴到聊天或截图里。**
 
 **使用须知**
 
