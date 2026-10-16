@@ -35,11 +35,14 @@ COMMANDS = {
 }
 # 菜单按钮里显示的命令（去掉斜杠，写法要求: 小写字母/数字/下划线）
 MENU = [
-    ("grab_start", "开始抢机"),
-    ("grab_stop", "停止抢机"),
-    ("grab_status", "查看状态"),
+    ("grab_start", "🚀 开始抢机"),
+    ("grab_stop", "🛑 停止抢机"),
+    ("grab_status", "📊 查看状态"),
 ]
-HELP = "可用命令:\n/grab_start 开始抢机\n/grab_stop 停止抢机\n/grab_status 查看状态"
+HELP = ("📖 可用命令\n"
+        "/grab_start   开始抢机\n"
+        "/grab_stop    停止抢机\n"
+        "/grab_status  查看状态")
 
 
 def log(msg):
@@ -128,8 +131,9 @@ def handle(api, msg):
         result = COMMANDS[cmd]()
     except Exception as e:
         log("%s 执行出错: %r" % (cmd, e))
-        result = "执行出错，详见 tg_control.log"
-    reply(api, result)
+        reply(api, "❌ 执行出错，详见 tg_control.log")
+        return
+    reply(api, runner.describe(result))  # 结构化结果 → 带 emoji 的纯文本
 
 
 def main():
@@ -148,7 +152,7 @@ def main():
         log("清理积压消息失败: %r" % (e,))
 
     log("遥控已启动，授权用户 ID: %s" % ALLOWED_ID)
-    reply(api, "抢机遥控已上线。\n" + HELP)
+    reply(api, "🤖 抢机遥控已上线\n\n" + HELP)
     try:
         api.set_menu(ALLOWED_ID, MENU)  # 菜单只对授权用户可见
     except Exception as e:

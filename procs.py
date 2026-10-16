@@ -177,7 +177,7 @@ def wait_gone(pids, timeout=10):
 
 
 def etime_to_text(etime):
-    """ps 的 etime ([[dd-]hh:]mm:ss) 转成中文。"""
+    """ps 的 etime ([[dd-]hh:]mm:ss) 转成中文。不足 1 分钟显示秒，避免出现"已运行 0分钟"。"""
     days = 0
     if "-" in etime:
         d, etime = etime.split("-", 1)
@@ -185,9 +185,11 @@ def etime_to_text(etime):
     nums = [int(x) for x in etime.split(":")]
     while len(nums) < 3:
         nums.insert(0, 0)
-    hours, minutes = nums[0], nums[1]
+    hours, minutes, seconds = nums[0], nums[1], nums[2]
     if days:
         return "%d天%d小时" % (days, hours)
     if hours:
         return "%d小时%d分钟" % (hours, minutes)
-    return "%d分钟" % minutes
+    if minutes:
+        return "%d分钟" % minutes
+    return "%d秒" % seconds

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
-"""一键启停命令行。用法见 USAGE。"""
+"""一键启停命令行。用法见 USAGE。
+
+终端的排版在这里: 分隔线 + 缩进层级 + 颜色(只在终端里上色)。
+Telegram 的回复由 runner.describe() 渲染，两套风格互不影响。
+"""
 import os
+import shutil
 import sys
 
 import runner
@@ -26,7 +31,14 @@ USAGE = """coi / ctl.sh —— 抢机脚本与 Telegram 遥控的启停入口
   botlog      实时查看遥控日志 (Ctrl+C 退出，不影响脚本)
 
 其它:
-  -h, --help  显示这份帮助"""
+  -h, --help  显示这份帮助
+  --no-color  关闭颜色 (默认只在终端里上色；也可以用 NO_COLOR=1)"""
+
+RESET = "\033[0m"
+BOLD = "\033[1m"
+LEVEL_COLOR = {"ok": "\033[32m", "info": "\033[2m", "warn": "\033[33m", "error": "\033[31m"}
+
+COLOR = False  # 由 main() 按"是否终端 + 参数"决定
 
 
 def follow(path):
@@ -35,33 +47,81 @@ def follow(path):
     os.execvp("tail", ["tail", "-n", "30", "-f", path])
 
 
+def _paint(text, code):
+    return "%s%s%s" % (code, text, RESET) if COLOR and code else text
+
+
+def _dwidth(text):
+    return runner.display_width(text)
+
+
+def _clip(text, limit):
+    return runner.clip(text, limit)
+
+
+def _terminal_width():
+    return max(40, min(shutil.get_terminal_size((80, 24)).columns, 110))
+
+
+def show_status(info):
+    """status: 一个服务一个区块，分隔线 + 缩进层级。"""
+    width = _terminal_width()
+    head = "  ── %s " % info["label"]
+    print(_paint(head + "─" * max(3, width - _dwidth(head)), BOLD))
+    if info["running"]:
+        line = "运行中 · pid %s · 已运行 %s" % (
+            ",".join(str(p) for p in info["pids"]), info["etime"])
+        print("    " + _paint(_clip(line, width - 4), LEVEL_COLOR["ok"]))
+        if info["log"]:
+            print("    " + _paint("最近日志:", BOLD))
+            for line in info["log"].splitlines():
+                print("      " + _clip(line, width - 8))
+    else:
+        note = "（%s）" % info["note"] if info["note"] else ""
+        print("    " + _paint(_clip("未运行" + note, width - 4), LEVEL_COLOR["info"]))
+    print()
+
+
+def show_actions(results):
+    """up / down / restart / start / stop: 一个服务一行，标签对齐，可带本次输出。"""
+    width = _terminal_width()
+    pad = max(_dwidth(r["label"]) for r in results)
+    for r in results:
+        icon = runner.LEVEL_ICON.get(r["level"], "·")
+        gap = " " * (pad - _dwidth(r["label"]))
+        line = "%s %s%s  %s" % (icon, r["label"], gap, r["message"])
+        print("  " + _paint(_clip(line, width - 2), LEVEL_COLOR.get(r["level"], "")))
+        for out_line in (r.get("output") or "").strip().splitlines():
+            print("      " + _clip(out_line, width - 8))
+
+
 def main(argv):
-    cmd = argv[1] if len(argv) > 1 else ""
+    global COLOR
+    raw = argv[1:]
+    flags = [a for a in raw if a.startswith("--")]
+    args = [a for a in raw if not a.startswith("--")]
+    COLOR = ("--color" in flags
+             or (sys.stdout.isatty() and "--no-color" not in flags
+                 and not os.environ.get("NO_COLOR")))
+    cmd = args[0] if args else ""
     retry, bot = runner.RETRY, runner.BOT
 
     if cmd == "up":
-        print(retry.start())
-        print(bot.start())
+        show_actions([retry.start(), bot.start()])
     elif cmd == "down":
-        # 先停抢机再停遥控，避免遥控在中间又把抢机拉起来
-        print(retry.stop())
-        print(bot.stop())
+        show_actions([retry.stop(), bot.stop()])
     elif cmd == "restart":
-        print(retry.stop())
-        print(bot.stop())
-        print(retry.start())
-        print(bot.start())
+        show_actions([retry.stop(), bot.stop()])
+        print()
+        show_actions([retry.start(), bot.start()])
     elif cmd == "status":
-        print(retry.status())
-        print(bot.status())
-    elif cmd == "start":
-        print(retry.start())
-    elif cmd == "stop":
-        print(retry.stop())
-    elif cmd == "bot-start":
-        print(bot.start())
-    elif cmd == "bot-stop":
-        print(bot.stop())
+        print()
+        show_status(retry.status())
+        show_status(bot.status())
+    elif cmd in ("start", "stop", "bot-start", "bot-stop"):
+        svc = bot if cmd.startswith("bot-") else retry
+        result = svc.start() if cmd.endswith("start") else svc.stop()
+        show_actions([result])
     elif cmd == "log":
         follow(retry.log_file)
     elif cmd == "botlog":
