@@ -29,7 +29,9 @@ class TelegramApi:
         }
         if offset is not None:
             params["offset"] = offset
-        return self._call("getUpdates", params, timeout=poll_timeout + 10)
+        # Telegram 的长轮询可能比 timeout 稍晚才回，读超时留够余量(原来只多 10 秒，
+        # 隔着代理时容易把"服务器还在等消息"误判成 TimeoutError)。
+        return self._call("getUpdates", params, timeout=poll_timeout + 20)
 
     def set_menu(self, chat_id, commands):
         """给指定的私聊注册命令菜单。scope 限定为这一个聊天，所以别人看不到这些命令。"""

@@ -86,18 +86,23 @@ cp config.env.example config.env
 ./ctl.sh restart
 ```
 
-设置短命令 `grab`（可选，之后在任意目录都能用）：
+设置短命令 `coi`（可选，之后在任意目录都能用；这个项目目录本身就叫 `coi`，正好同名）：
 
 ```bash
-echo "alias grab='$PWD/ctl.sh'" >> ~/.zshrc && source ~/.zshrc
+# 在项目目录里执行这一行即可，$PWD 会展开成项目路径
+echo "coi() { '$PWD/ctl.sh' \"\$@\"; }" >> ~/.zshrc && source ~/.zshrc
 ```
 
 ```bash
-grab up
-grab status
-grab log
-grab down
+coi up          # 一键启动：抢机脚本 + Telegram 遥控
+coi bot-start   # 只启动遥控，不动抢机脚本（抢机已经在跑时用这条）
+coi status      # 查看两者状态
+coi log         # 实时看抢机日志
+coi down        # 两个都停
+coi -h          # 显示全部命令和说明（忘了命令名就看这个）
 ```
+
+只想让手机能遥控、不想重启抢机脚本时，用 `coi bot-start`：它只拉起遥控进程，"已经在跑的抢机脚本"不会被打断。
 
 抢到后登录：
 
@@ -230,7 +235,7 @@ cp config.env.example config.env
 ./ctl.sh up
 ```
 
-**`ctl.sh` 命令一览**（设置了 `grab` 别名后，把 `./ctl.sh` 换成 `grab` 即可）：
+**`ctl.sh` 命令一览**（设置了 `coi` 短命令后，把 `./ctl.sh` 换成 `coi` 即可，例如 `coi up`）：
 
 | 命令 | 作用 |
 | --- | --- |
@@ -241,6 +246,7 @@ cp config.env.example config.env
 | `./ctl.sh start` / `stop` | 只启动 / 停止抢机脚本 |
 | `./ctl.sh bot-start` / `bot-stop` | 只启动 / 停止 Telegram 遥控 |
 | `./ctl.sh log` / `botlog` | 实时查看抢机 / 遥控日志，`Ctrl+C` 退出查看，不影响脚本 |
+| `./ctl.sh -h` / `--help` | 显示全部命令和说明（`coi -h`、`coi help` 一样；不带参数也会打印） |
 
 没有配置 Telegram 的话，`up` 会提示遥控启动失败，但抢机脚本照常启动，也可以直接用 `./ctl.sh start`。
 
@@ -360,8 +366,9 @@ Telegram 服务器  <──(每约 30 秒一次长轮询，由你的电脑主动
 | 发命令没有任何回复 | 先 `./ctl.sh status` 确认遥控在运行，再看 `./ctl.sh botlog`。如果有"忽略未授权消息 (from id=…)"且 id 是你自己的，说明 `TELEGRAM_CHAT_ID` 填错了 |
 | 日志里反复出现 `409 Conflict` | 有另一个程序在拉取同一个机器人的消息，比如设置过 webhook，或者在别的机器上也跑着同一个机器人 |
 | 启动时报"TELEGRAM_CHAT_ID 必须是…数字" | 填成了用户名或带了其他字符，改成纯数字 |
-| `/grab_start` 回复"启动后立即退出" | 按回复里附带的日志排查，常见是 `config.env` 校验没通过 |
+| `/grab_start` 回复"启动后立即退出 (退出码 N)" | 回复里附带的是**这一次**启动新写入的日志（不再混进历史记录）。退出码 1 且日志提到 `config.env`，通常是配置校验没通过 |
 | `/grab_start` 回复"别处有同名脚本在运行" | 另一个目录里有名为 `retry.sh` 的脚本在跑，且存在残留的锁。确认它不是你要的之后停掉它，或手动清理锁目录 |
+| `botlog` 里出现"长轮询连接被中断 (RemoteDisconnected / TimeoutError)，属于代理/网络的正常现象" | 本机代理（如 Surge）或网络把长轮询连接掐断了，几秒后会自动接上，**不用处理**。只有长时间收不到回复才需要排查网络/代理 |
 | 菜单按钮没出现 | 看 `./ctl.sh botlog` 有没有"注册菜单按钮失败"；退出聊天窗口重新进入；仍不行就重启 Telegram |
 
 ---

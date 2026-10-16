@@ -16,14 +16,15 @@ REAL_DIR = os.path.realpath(DIR)
 SHELL_EXES = {"bash", "sh", "zsh", "caffeinate", "nohup"}
 
 
-def snapshot():
-    """当前所有进程: [{pid, ppid, stat, etime, cmd}]。"""
-    out = subprocess.run(
-        ["ps", "-axww", "-o", "pid=,ppid=,stat=,etime=,command="],
-        capture_output=True, text=True, timeout=10,
-    ).stdout
+def _is_etime(text):
+    """ps 的 etime 只可能是数字和 : - 组成。"""
+    return bool(text) and all(c.isdigit() or c in ":-" for c in text)
+
+
+def parse_ps(text):
+    """解析 `ps -o pid=,ppid=,stat=,etime=,command=` 的输出。"""
     rows = []
-    for line in out.splitlines():
+    for line in text.splitlines():
         parts = line.split(None, 4)
         if len(parts) < 5:
             continue
@@ -31,9 +32,26 @@ def snapshot():
             pid, ppid = int(parts[0]), int(parts[1])
         except ValueError:
             continue
+        # 命令行里带换行的进程会被 ps 拆成多行，这些续行不是进程，丢掉
+        if not _is_etime(parts[3]):
+            continue
         rows.append({"pid": pid, "ppid": ppid, "stat": parts[2],
                      "etime": parts[3], "cmd": parts[4]})
     return rows
+
+
+def snapshot():
+    """当前所有进程: [{pid, ppid, stat, etime, cmd}]。"""
+    try:
+        out = subprocess.run(
+            ["ps", "-axww", "-o", "pid=,ppid=,stat=,etime=,command="],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        # 例: 权限/沙箱限制导致 ps 起不来。必须报错，绝不能把"读不到进程"当成"没有进程在跑"，
+        # 否则单实例检查会静默失效。
+        raise RuntimeError("无法执行 ps 读取进程列表: %r" % (e,))
+    return parse_ps(out)
 
 
 def cwd_of(pid):
@@ -88,6 +106,18 @@ def find(patterns, rows):
                 found.append(row)
                 break
     return found
+
+
+def primaries(matched):
+    """只保留"根进程": 丢掉父进程也在匹配结果里的那些进程。
+
+    caffeinate 启动的服务其实是两个进程: 被跟踪的主进程(bash/python)会 fork 一个
+    持有电源断言的子进程，该子进程的命令行里仍带着脚本名，find() 会把它一起匹配到。
+    父进程也在名单里的，一定是这类派生子进程，丢掉它们才不会把一个服务算成两个
+    (否则 status 会显示两个 pid，机器人自检还会把自己误判成"另一个实例")。
+    """
+    ids = {r["pid"] for r in matched}
+    return [r for r in matched if r["ppid"] not in ids]
 
 
 def mentions(script, rows):

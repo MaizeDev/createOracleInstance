@@ -7,15 +7,26 @@
   2. 消息不能太旧，防止积压的旧命令被重放。
   3. 消息必须恰好是一条白名单命令，多余内容一律无效；文本不会被拼进任何命令行。
 """
+import http.client
 import os
+import socket
 import sys
 import time
+import urllib.error
 
 import runner
 from tg_api import TelegramApi
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 MAX_AGE_SEC = int(os.environ.get("TG_CMD_MAX_AGE_SEC", "120"))
+
+# 长轮询隔着代理/网络跑，连接被掐断是常态: 这几个异常不算故障，安静重试即可
+TRANSIENT_ERRORS = (
+    http.client.RemoteDisconnected,  # 代理/服务器把长轮询连接关了
+    TimeoutError,                    # 读超时
+    ConnectionError,                 # 连接被重置等
+    socket.gaierror,                 # DNS 抖动
+)
 
 COMMANDS = {
     "/grab_start": runner.start,
@@ -38,6 +49,18 @@ def log(msg):
     print(line, flush=True)
 
 
+def is_transient(e):
+    """网络/代理导致的长轮询中断: 等几秒重来即可，不是故障。"""
+    if isinstance(e, urllib.error.HTTPError):
+        return False  # 带 HTTP 状态码的错误(如 401)不属于网络抖动
+    return isinstance(e, TRANSIENT_ERRORS + (urllib.error.URLError,))
+
+
+def is_auth_error(e):
+    """token 失效/被撤销: 401 Unauthorized、403 Forbidden。"""
+    return isinstance(e, urllib.error.HTTPError) and e.code in (401, 403)
+
+
 def load_allowed_id():
     raw = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     if not raw.isdigit() or int(raw) <= 0:
@@ -50,9 +73,12 @@ ALLOWED_ID = load_allowed_id()
 
 def single_instance():
     """只允许运行一份，否则两个进程同时拉取消息会互相冲突。"""
-    others = runner.BOT.pids()  # 已自动排除自己和自己的祖先进程
+    others = runner.BOT.pids()  # 已自动排除自己/祖先，并把 caffeinate 派生的子进程去重
     if others:
-        sys.exit("已有另一个 tg_control 在运行 (pid %s)" % ",".join(map(str, others)))
+        # 走 log()，让这行也带时间戳（以前 sys.exit 直接写 stderr，日志里是一行裸文本）
+        log("已有另一个 tg_control 在运行 (pid %s)，本次启动退出"
+            % ",".join(map(str, others)))
+        sys.exit(1)
 
 
 def is_authorized(msg):
@@ -129,15 +155,34 @@ def main():
         log("注册菜单按钮失败（不影响命令使用）: %r" % (e,))
 
     backoff = 5
+    transient = 0
     while True:
         try:
             updates = api.get_updates(offset=offset)
-            backoff = 5
         except Exception as e:
-            log("拉取消息失败: %r，%s 秒后重试" % (e, backoff))
-            time.sleep(backoff)
-            backoff = min(backoff * 2, 300)
+            if is_transient(e):
+                # 代理/网络把长轮询连接掐断属于正常现象: 安静重试，别刷"错误"
+                transient += 1
+                if transient == 1 or transient % 10 == 0:
+                    log("长轮询连接被中断 (%s)，属于代理/网络的正常现象，"
+                        "%s 秒后继续（连续第 %d 次）"
+                        % (type(e).__name__, backoff, transient))
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30)  # 连接抖动用不着退避太久
+            else:
+                if is_auth_error(e):
+                    log("拉取消息失败: %s。TELEGRAM_BOT_TOKEN 可能已失效或被 /revoke，"
+                        "请在 config.env 更新后执行 ./ctl.sh bot-stop && ./ctl.sh bot-start"
+                        % (e,))
+                else:
+                    log("拉取消息失败: %r，%s 秒后重试" % (e, backoff))
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 120)  # 别像以前那样一退就是 5 分钟
             continue
+        if transient:
+            log("长轮询已恢复正常（此前连续中断 %d 次）" % transient)
+            transient = 0
+        backoff = 5
         for update in updates:
             offset = update["update_id"] + 1
             try:

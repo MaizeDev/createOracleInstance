@@ -25,6 +25,23 @@ def _tail(path, n=3):
     return "\n".join(lines[-n:])
 
 
+def _tail_since(path, offset, n=3, limit=2000):
+    """只读 offset 之后新增的日志，取最后 n 行。
+
+    启动失败时用它，避免把日志里历史的失败当成本次启动的问题。
+    """
+    try:
+        with open(path, "rb") as f:
+            f.seek(offset)
+            data = f.read(65536)
+    except OSError:
+        return ""
+    text = data.decode("utf-8", "replace").strip()
+    if not text:
+        return ""
+    return "\n".join(text.splitlines()[-n:])[-limit:]
+
+
 class Service(object):
     def __init__(self, label, patterns, script, log_file,
                  lock_dir=None, kill_children=False, show_log=False):
@@ -41,9 +58,17 @@ class Service(object):
     def _reap(self):
         self._started = [p for p in self._started if p.poll() is None]
 
-    def _matched(self, rows):
+    def _matched(self, rows, primary=True):
+        # primary=True: 一个服务只算一个 pid —— caffeinate 会派生一个命令行里仍带脚本名的
+        #   子进程，先去掉它，免得服务把自己算成"另一个实例"(见 procs.primaries)。
+        #   注意必须先去掉派生子进程、再排除自己/祖先：否则自己的 pid 被剔掉后，就认不出
+        #   "这个 caffeinate 子进程的父进程是我"了。
+        # primary=False: 返回全部匹配进程，停止时用它把 caffeinate 子进程也一起收掉。
+        found = procs.find(self.patterns, rows)
+        if primary:
+            found = procs.primaries(found)
         protected = procs.self_and_ancestors(rows)
-        return [r for r in procs.find(self.patterns, rows) if r["pid"] not in protected]
+        return [r for r in found if r["pid"] not in protected]
 
     def pids(self):
         self._reap()
@@ -74,6 +99,11 @@ class Service(object):
         cmd = ["bash", self.script]
         if shutil.which("caffeinate"):  # macOS: 防止休眠
             cmd = ["caffeinate", "-is"] + cmd
+
+        try:
+            log_size = os.path.getsize(self.log_file)  # 记住启动前的日志长度
+        except OSError:
+            log_size = 0
         with open(self.log_file, "ab") as log:
             # stdin 固定为 /dev/null: 关闭终端后 oci 不会因标准输入失效而崩溃；
             # start_new_session: 独立会话，不受启动它的终端影响
@@ -84,14 +114,20 @@ class Service(object):
         self._started.append(proc)
 
         time.sleep(3)
-        if proc.poll() is not None or not self._matched(procs.snapshot()):
-            return "%s: 启动后立即退出，最近日志:\n%s" % (self.label, _tail(self.log_file))
-        return "%s: 已启动" % self.label
+        code = proc.poll()
+        if code is None and self._matched(procs.snapshot()):
+            return "%s: 已启动" % self.label
+        if code is not None:
+            head = "%s: 启动后立即退出 (退出码 %s)" % (self.label, code)
+        else:
+            head = "%s: 进程还活着，但在进程列表里找不到它" % self.label
+        out = _tail_since(self.log_file, log_size)  # 只看这次启动新写进去的内容
+        return head + "，本次输出:\n" + (out or "(没有新的输出)")
 
     def stop(self):
         self._reap()
         rows = procs.snapshot()
-        found = self._matched(rows)
+        found = self._matched(rows, primary=False)  # 连 caffeinate 派生的子进程一起收
         if not found:
             cleaned = self._clear_lock()
             return "%s: 当前没有在运行%s" % (self.label, "（已清理残留的锁）" if cleaned else "")

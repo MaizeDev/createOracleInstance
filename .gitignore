@@ -3,3 +3,4 @@ config.env
 *.pem
 *.log
 *.pid
+__pycache__/

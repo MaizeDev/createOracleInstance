@@ -5,18 +5,28 @@ import sys
 
 import runner
 
-USAGE = """用法: ./ctl.sh <命令>
+USAGE = """coi / ctl.sh —— 抢机脚本与 Telegram 遥控的启停入口
 
-  up         一键启动: 抢机脚本 + Telegram 遥控
-  down       一键停止: 抢机脚本 + Telegram 遥控
-  restart    先 down 再 up
-  status     查看两者状态
-  start      只启动抢机脚本
-  stop       只停止抢机脚本
-  bot-start  只启动 Telegram 遥控
-  bot-stop   只停止 Telegram 遥控
-  log        实时查看抢机日志 (Ctrl+C 退出，不影响脚本)
-  botlog     实时查看遥控日志"""
+用法: coi <命令>          (等价于 ./ctl.sh <命令>)
+
+启停:
+  up          一键启动: 抢机脚本 + Telegram 遥控
+  down        一键停止: 抢机脚本 + Telegram 遥控
+  restart     先 down 再 up
+  status      查看两者状态 (抢机脚本会附带最近几行日志)
+
+只操作其中一个:
+  start       只启动抢机脚本
+  stop        只停止抢机脚本
+  bot-start   只启动 Telegram 遥控 (不动抢机脚本)
+  bot-stop    只停止 Telegram 遥控
+
+看日志:
+  log         实时查看抢机日志 (Ctrl+C 退出，不影响脚本)
+  botlog      实时查看遥控日志 (Ctrl+C 退出，不影响脚本)
+
+其它:
+  -h, --help  显示这份帮助"""
 
 
 def follow(path):
@@ -63,4 +73,11 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    try:
+        sys.exit(main(sys.argv))
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as e:
+        # 例如 ps 读不到进程列表: 给一句人话，而不是一屏栈
+        print("出错了: %s" % (e,), file=sys.stderr)
+        sys.exit(1)
