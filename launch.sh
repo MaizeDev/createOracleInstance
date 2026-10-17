@@ -40,6 +40,7 @@ if [ "$rc" -eq 0 ]; then
     report_instance "$iid"
   else
     log "已创建，但暂时查不到 OCID，请到控制台确认"
+    "$DIR/notify.sh" "OCI Arm 实例创建请求已被接受: ${INSTANCE_NAME}，暂时查不到 OCID，请到控制台确认"
   fi
   exit 0
 fi
