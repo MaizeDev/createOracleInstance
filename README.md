@@ -2,7 +2,7 @@
 
 自动重试创建 Oracle Cloud **Always Free Arm** 实例（`VM.Standard.A1.Flex`），抢到后 Telegram 通知；不在电脑边也能用 Telegram 遥控启停。
 
-只依赖官方 OCI CLI + bash + Python 标准库，不碰你的账号密码，不需要任何第三方服务。
+只依赖官方 OCI CLI + bash + curl + Python 标准库，不碰你的账号密码，不需要任何第三方服务。
 
 - 容量不足 / 被限流自动放慢，连续异常自动停止并通知
 - 一条命令启停（`coi up / status / log / down`），macOS 自动防休眠，关终端不中断
@@ -12,7 +12,7 @@
 
 ## 1. 需要什么
 
-- **macOS**（防休眠用了 `caffeinate`；Linux 需要自己替换这块）
+- **macOS**（防休眠用了 `caffeinate`）。Linux 也能运行：没有 `caffeinate` 时自动跳过防休眠，其余功能不受影响
 - **OCI CLI 已配置**：`oci iam region list` 能返回列表
 - **python3**（只用标准库，不用装包）
 - Always Free 额度：A1 合计 **2 OCPU / 12GB**、存储 **200GB**；免费资源只能建在 **Home Region**，注册后不可改
@@ -100,12 +100,12 @@ echo "coi() { '$PWD/ctl.sh' \"\$@\"; }" >> ~/.zshrc && source ~/.zshrc
 
 ```text
   ── 抢机脚本 ──────────────────────────────
-    运行中 · pid 60042 · 已运行 12 分钟
+    运行中 · pid 60042 · 已运行 12分钟
     最近日志:
       [2026-10-16 20:19:11] 尝试创建 qdii-arm (1 OCPU / 6GB, 启动卷 50GB)
 
   ── 遥控机器人 ────────────────────────────
-    运行中 · pid 59441 · 已运行 13 分钟
+    运行中 · pid 59441 · 已运行 13分钟
 ```
 
 `up` / `down` / `restart` 是每服务一行；失败时把**本次**启动新写入的日志缩进跟在后面（不会混进历史失败）。没配 Telegram 时 `up` 会提示遥控启动失败，但抢机脚本照常启动（也可只用 `coi start`）。
@@ -131,7 +131,7 @@ echo "coi() { '$PWD/ctl.sh' \"\$@\"; }" >> ~/.zshrc && source ~/.zshrc
 
 - 默认抢 **1 OCPU / 6GB**：比一上来就要 2/12 容易成功得多。
 - 有**额度闸**：`OCPUS > 2`、`MEMORY_GB > 12`、启动卷不在 47~200、间隔低于 60s 会直接拒绝运行（但不会统计账号里已有的实例，要自己算）。
-- **改完 `config.env` 要重启**：`coi restart`（只改了 Telegram 配置可用 `coi bot-restart`）。
+- **改完 `config.env` 要重启**：`coi restart`。改了 `TELEGRAM_*` 也要用 `coi restart`：`retry.sh` 启动时只读一次配置，它发出的“连续异常停止 / 达到最大次数”通知用的是启动时的值，只重启遥控不会更新。只有遥控专用的项（`TG_CMD_MAX_AGE_SEC`、`TG_LOG_WIDTH`）才可以只用 `coi bot-restart`。
 
 ---
 
@@ -163,14 +163,14 @@ set -a; . ./config.env; set +a
 
 ```text
 🟢 抢机脚本 运行中
-pid 60042 · 已运行 12 分钟
+pid 60042 · 已运行 12分钟
 
 📄 最近日志
 [20:31:09] 尝试创建 qdii-arm（1C/6GB）
 ```
 
 - **安全设计**：只认私聊里 `TELEGRAM_CHAT_ID` 那个数字 ID；消息必须**恰好**是一条命令（多余内容一律忽略，文本不会拼进命令行）；启动时丢弃积压旧消息、超过 120 秒的忽略；token 不进日志、不进 `ps` 命令行；重复启动会被拒绝。
-- **加固**：@BotFather 里 `/setjoingroups` → Disable；token 泄露就 `/revoke`，更新 `config.env` 后 `coi bot-restart`。
+- **加固**：@BotFather 里 `/setjoingroups` → Disable；token 泄露就 `/revoke`，更新 `config.env` 后 `coi restart`（抢机脚本里的通知也要换成新 token）。**不要把 token 贴到聊天或截图里。**
 - 遥控是**主动向外长轮询**，不需要公网 IP、不用开端口；但电脑要醒着、遥控进程要在跑，否则发消息没反应（需要回电脑 `coi bot-start`）。
 
 ---
@@ -241,7 +241,7 @@ oci network security-list list -c $T --vcn-id $V \
 
 - 原因：休眠期间进程被冻结、墙上时钟照走，于是日志里出现“耗时 22 分钟”“间隔 1.5 小时”。锁屏不是原因（锁屏是休眠的结果）。
 - 确认：`pmset -g log | grep -E " (Sleep|Wake) +" | tail -20` 与日志对照；`DarkWake` 不代表脚本在正常运行。
-- 处理：`coi up` 已自动带 `caffeinate -is`；必须**接电源 + 不合盖**（合盖会强制睡眠，拦不住）。验证：`pmset -g assertions | grep -i caffeinate` 应看到 `caffeinate ... asserting on behalf of './retry.sh'` 两行。
+- 处理：`coi up` 已自动带 `caffeinate -is`；必须**接电源 + 不合盖**（合盖会强制睡眠，拦不住）。验证：`pmset -g assertions | grep -i caffeinate` 应看到 `caffeinate asserting on behalf of 'bash' (pid N)`；每个服务对应 **2 条**（`PreventUserIdleSystemSleep` + `PreventSystemSleep`，即 `-i` 和 `-s`），`pid N` 是 `retry.sh` 的进程号（可和 `coi status` 里的 pid 对照）。
 
 **② 停不掉 / 新进程立刻退出**
 
