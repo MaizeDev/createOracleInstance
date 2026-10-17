@@ -246,7 +246,9 @@ oci network security-list list -c $T --vcn-id $V \
 **② 停不掉 / 新进程立刻退出**
 
 - 原因：`retry.sh` 的 trap 在等 `sleep`/`oci` 期间会推迟处理 SIGTERM（限流时一次等待约 6 分钟），所以 `pkill` 看起来“没反应”；旧进程还活着时新进程必然撞锁。
-- 处理：`coi restart`（强制终止 + 清锁 + 重启）。手动兜底顺序不能颠倒：`pkill -9 -f retry.sh` → `pgrep -fl retry.sh` 确认没了 → `rmdir "${TMPDIR:-/tmp}/oci-a1-retry.lock"` → 重新启动（`kill -9` 不执行 trap，必须手动清锁）。
+- 处理：`coi restart`（强制终止 + 清锁 + 重启）。仅在 `coi` 完全用不了时才手动兜底，顺序不能颠倒：`pkill -9 -f retry.sh` → `pgrep -fl retry.sh` 确认没了 → `rmdir "${TMPDIR:-/tmp}/oci-a1-retry.lock"` → 重新启动（`kill -9` 不执行 trap，必须手动清锁）。
+
+> ⚠️ `pkill -9 -f retry.sh` 是旧版手工时代的老办法：它按**命令行**匹配，会杀掉所有命令行里含 `retry.sh` 的进程（比如你正开着编辑器编辑它），这和项目“只认本项目目录”的原则相反。它只是最后手段；平时请用 `coi stop` / `coi restart`，它们只终止经过校验的本项目进程。
 
 **③ 关终端后 `oci` 报 Bad file descriptor**
 
