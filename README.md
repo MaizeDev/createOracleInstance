@@ -59,7 +59,7 @@
 | `runner.py` | 启动 / 停止 / 查询两个后台服务的逻辑，`ctl.sh` 和 Telegram 机器人共用 |
 | `procs.py` | 进程查找与终止，只会识别和终止位于本项目目录的脚本 |
 | `tg_api.py` | Telegram Bot API 的最小封装（只用标准库） |
-| `test_procs.py` / `test_hardening.py` | 回归测试，`python3 test_procs.py`、`python3 test_hardening.py` 即可运行，不会启动任何服务 |
+| `test_procs.py` / `test_hardening.py` / `test_launch.py` | 回归测试，`python3 test_procs.py` 等直接运行即可，不会启动任何服务、不联网 |
 | `.gitignore` | 排除 `config.env`、`*.key`、`*.pem`、`*.log`、`*.pid`，防止私密信息进仓库 |
 
 ---
