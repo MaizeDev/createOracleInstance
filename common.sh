@@ -17,8 +17,6 @@ need_oci() {
 # 只读取 config.env，不检查 oci、不校验抢机参数。Telegram 遥控只需要 token 和用户 ID，
 # 不该因为抢机配置有问题就起不来(那正是你最需要远程排查的时候)。
 load_env() {
-  # 注意 ${CONFIG_FILE} 必须带花括号: macOS 自带 bash 3.2 会把 "变量名紧跟全角字符" 里的
-  # 变量吃掉(值和字符首字节一起丢)，消息会变成乱码
   [ -f "$CONFIG_FILE" ] || die "找不到 ${CONFIG_FILE}，请先 cp config.env.example config.env 并填写"
 
   set -a

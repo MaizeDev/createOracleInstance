@@ -2,10 +2,11 @@
 """审查后加固项的回归测试(和 test_procs.py 分开，互不影响)。
 
 覆盖: ps 读不到/读空必须报错、项目路径含空格仍能识别、notify.sh 不把 token 放进命令行、
-TELEGRAM_CHAT_ID 的校验、遥控机器人的配置加载不依赖 oci。
+TELEGRAM_CHAT_ID 的校验、遥控机器人的入口和配置加载不依赖 oci、.sh 里 $VAR 后不能紧跟全角字符。
 跑法: python3 test_hardening.py
 """
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -188,29 +189,60 @@ class LoadEnvTest(unittest.TestCase):
 
 
 @unittest.skipUnless(BASH, "需要 bash")
-class BotEntryConfigTest(unittest.TestCase):
-    """遥控入口只该需要 Telegram 配置，不该被抢机配置(oci、COMPARTMENT_ID 等)卡住。
+class BotEntryTest(unittest.TestCase):
+    """tg_control.sh 这个入口本身必须不依赖 oci 和抢机参数。
 
-    回归用: 之前 tg_control.sh 误用了 load_config，抢机配置一坏、遥控也起不来，
-    正好在最需要远程排查的时候失联。
+    只测 load_env 这个函数不够: 入口脚本改回 load_config 时，函数测试照样通过。
+    这里用一个假的 python3 顶替真的机器人，只要入口能走到 exec python3 就算过关。
     """
 
-    def test_tg_control_sh_does_not_need_oci_or_grab_settings(self):
+    def test_entry_starts_with_only_token_and_user_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            fake = os.path.join(d, "python3")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\necho BOT_STARTED\n")
+            os.chmod(fake, os.stat(fake).st_mode | stat.S_IEXEC)
+            cfg = os.path.join(d, "config.env")
+            with open(cfg, "w") as f:
+                f.write("TELEGRAM_BOT_TOKEN=t\nTELEGRAM_CHAT_ID=42\n")  # 没有任何抢机参数
+            env = dict(os.environ, CONFIG_FILE=cfg,
+                       PATH=d + os.pathsep + path_without_oci())
+            r = subprocess.run([BASH, os.path.join(HERE, "tg_control.sh")], env=env,
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True)
+            self.assertIn("BOT_STARTED", r.stdout, r.stdout + r.stderr)
+
+    def test_entry_still_requires_token(self):
         with tempfile.TemporaryDirectory() as d:
             cfg = os.path.join(d, "config.env")
             with open(cfg, "w") as f:
-                f.write("TELEGRAM_CHAT_ID=42\n")  # 故意没有 TELEGRAM_BOT_TOKEN，也没有任何 OCI 参数
+                f.write("TELEGRAM_CHAT_ID=42\n")
             env = dict(os.environ, CONFIG_FILE=cfg, PATH=path_without_oci())
             env.pop("TELEGRAM_BOT_TOKEN", None)
-            env.pop("TELEGRAM_CHAT_ID", None)
-            r = subprocess.run([BASH, os.path.join(HERE, "tg_control.sh")],
-                               env=env, stdin=subprocess.DEVNULL,
-                               capture_output=True, text=True)
-        out = r.stdout + r.stderr
-        self.assertNotEqual(r.returncode, 0, out)
-        # 应该停在"缺 token"，而不是"找不到 oci"
-        self.assertIn("TELEGRAM_BOT_TOKEN", out)
-        self.assertNotIn("找不到 oci", out)
+            r = subprocess.run([BASH, os.path.join(HERE, "tg_control.sh")], env=env,
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("TELEGRAM_BOT_TOKEN", r.stdout + r.stderr)
+
+
+class ShellVarBraceTest(unittest.TestCase):
+    """macOS 自带 bash 3.2: "$VAR，" 这种变量名后紧跟全角字符的写法会把变量吞成空串
+    (报错信息里的值直接消失)。所有 .sh 里必须写成 ${VAR}。"""
+
+    PATTERN = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)(?=[^\x00-\x7f])")
+
+    def test_no_unbraced_var_before_non_ascii(self):
+        bad = []
+        for name in sorted(os.listdir(HERE)):
+            if not name.endswith(".sh"):
+                continue
+            with open(os.path.join(HERE, name), encoding="utf-8") as f:
+                for no, line in enumerate(f, 1):
+                    if line.lstrip().startswith("#"):
+                        continue
+                    for m in self.PATTERN.finditer(line):
+                        bad.append("%s:%d  $%s 后面紧跟 %r，请改成 ${%s}"
+                                   % (name, no, m.group(1), line[m.end()], m.group(1)))
+        self.assertEqual(bad, [], "\n" + "\n".join(bad))
 
 
 if __name__ == "__main__":
