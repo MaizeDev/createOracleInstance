@@ -10,7 +10,8 @@ exec < /dev/null
 
 # shellcheck source=common.sh
 . "$(dirname "$0")/common.sh"
-load_config
+# 只读 config.env，不检查 oci、不校验抢机参数: 抢机配置坏了也要能远程遥控排查
+load_env
 
 : "${TELEGRAM_BOT_TOKEN:?请在 config.env 填写 TELEGRAM_BOT_TOKEN}"
 : "${TELEGRAM_CHAT_ID:?请在 config.env 填写 TELEGRAM_CHAT_ID (你自己的数字用户 ID)}"

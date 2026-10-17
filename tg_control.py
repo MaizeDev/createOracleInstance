@@ -9,6 +9,7 @@
 """
 import http.client
 import os
+import re
 import socket
 import sys
 import time
@@ -66,7 +67,8 @@ def is_auth_error(e):
 
 def load_allowed_id():
     raw = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-    if not raw.isdigit() or int(raw) <= 0:
+    # 不用 str.isdigit(): 它也认全角数字/上标数字，int() 随后会抛异常而不是友好退出
+    if not re.fullmatch(r"[0-9]+", raw) or int(raw) <= 0:
         sys.exit("TELEGRAM_CHAT_ID 必须是你自己的数字用户 ID（正整数），拒绝启动")
     return int(raw)
 

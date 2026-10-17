@@ -13,7 +13,7 @@ load_config
 
 # 防重复: 已有同名实例就不再创建
 if existing="$(find_instance_id)"; then
-  log "已存在同名实例 $INSTANCE_NAME，不再重复创建"
+  log "已存在同名实例 ${INSTANCE_NAME}，不再重复创建"
   report_instance "$existing"
   exit 0
 fi

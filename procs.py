@@ -51,7 +51,11 @@ def snapshot():
         # 例: 权限/沙箱限制导致 ps 起不来。必须报错，绝不能把"读不到进程"当成"没有进程在跑"，
         # 否则单实例检查会静默失效。
         raise RuntimeError("无法执行 ps 读取进程列表: %r" % (e,))
-    return parse_ps(out)
+    rows = parse_ps(out)
+    # 真实的进程表里至少有 ps 自己和当前进程；一行都解析不出来，说明 ps 被限制了或输出格式变了
+    if not rows:
+        raise RuntimeError("ps 没有返回任何可解析的进程，无法判断服务是否在运行")
+    return rows
 
 
 def cwd_of(pid):
@@ -84,6 +88,15 @@ def _in_project(row, script_arg):
     return os.path.dirname(os.path.realpath(path)) == REAL_DIR
 
 
+def _ends_with_project_script(cmd, script):
+    """命令行是否以"<项目目录>/<脚本名>"结尾。
+
+    项目目录里有空格时，按空格切分后最后一个 token 只是路径的后半段，认不出来；
+    这里直接拿整条命令行的结尾和完整路径比。前面要求有个空格，保证它是独立的一个参数。
+    """
+    return any(cmd.endswith(" " + os.path.join(d, script)) for d in {DIR, REAL_DIR})
+
+
 def find(patterns, rows):
     """patterns: [("shell"|"python", 脚本名)]，返回匹配的进程行。"""
     found = []
@@ -102,7 +115,7 @@ def find(patterns, rows):
                 continue
             if kind == "python" and not exe.lower().startswith("python"):
                 continue
-            if _in_project(row, last):
+            if _ends_with_project_script(row["cmd"], script) or _in_project(row, last):
                 found.append(row)
                 break
     return found

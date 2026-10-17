@@ -57,7 +57,7 @@ while :; do
   esac
 
   if [ "$MAX_ATTEMPTS" -gt 0 ] && [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
-    "$DIR/notify.sh" "OCI 重试脚本已达到最大尝试次数 $MAX_ATTEMPTS，未抢到"
+    "$DIR/notify.sh" "OCI 重试脚本已达到最大尝试次数 ${MAX_ATTEMPTS}，未抢到"
     die "已达到最大尝试次数 $MAX_ATTEMPTS"
   fi
 

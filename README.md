@@ -47,18 +47,19 @@
 | 文件 | 作用 |
 | --- | --- |
 | `config.env.example` | 配置模板，复制为 `config.env` 后填写 |
-| `common.sh` | 公共函数：读取并校验配置、查找实例、成功后汇报（被其他脚本 source，不要单独运行） |
+| `common.sh` | 公共函数：读取并校验配置（`load_env` 只读 `config.env`，`load_config` 再做抢机参数校验）、查找实例、成功后汇报（被其他脚本 source，不要单独运行） |
 | `lookup.sh` | 只读查询，帮你找出需要填的 OCID，不创建任何资源 |
 | `launch.sh` | 单次创建尝试，用来试跑和被 `retry.sh` 调用 |
 | `ctl.sh` | **日常入口**：一键启动 / 停止 / 重启 / 查看状态，可在任意目录运行 |
 | `ctl.py` | `ctl.sh` 的实际实现 |
 | `retry.sh` | 循环重试本体，一般不需要直接运行，由 `ctl.sh` 启动 |
-| `notify.sh` | 可选的 Telegram 通知 |
-| `tg_control.sh` | 可选的 Telegram 遥控入口：加载配置后启动 `tg_control.py` |
+| `notify.sh` | 可选的 Telegram 通知（token 通过 stdin 交给 curl，不会出现在 `ps` 的命令行里） |
+| `tg_control.sh` | 可选的 Telegram 遥控入口：只加载 `config.env`（不要求 `oci` 或抢机参数齐全）后启动 `tg_control.py` |
 | `tg_control.py` | 遥控主程序：校验发送者身份、只响应 3 条固定命令 |
 | `runner.py` | 启动 / 停止 / 查询两个后台服务的逻辑，`ctl.sh` 和 Telegram 机器人共用 |
 | `procs.py` | 进程查找与终止，只会识别和终止位于本项目目录的脚本 |
 | `tg_api.py` | Telegram Bot API 的最小封装（只用标准库） |
+| `test_procs.py` / `test_hardening.py` | 回归测试，`python3 test_procs.py`、`python3 test_hardening.py` 即可运行，不会启动任何服务 |
 | `.gitignore` | 排除 `config.env`、`*.key`、`*.pem`、`*.log`、`*.pid`，防止私密信息进仓库 |
 
 ---
